@@ -1,0 +1,284 @@
+\documentclass{scrartcl}
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+\title{maj2random}
+\author{\small Michael Clark \\ \small Independent Researcher \\ \small \texttt{<michaeljclark@mac.com>}}
+\date{}
+
+\begin{document}
+\maketitle
+
+\subsection*{introduction}
+
+\noindent
+\emph{maj2random} is a low-overhead floating-point hash function built
+upon a reduced-round version of the SHA-2 hash algorithm. it retains
+the high-quality mixing of the compression function to permute entropy from a
+\emph{GLSL vec2}, producing two random values between 0.0 and 1.0. the name
+\emph{maj2random} comes from the \emph{maj} mixing function and pays homage
+to \emph{arc4random}, where the "2" refers to the number of rounds.
+\\
+\par\noindent
+\emph{maj2random} trades cryptographic strength for speed, making it suitable
+for GPU shaders, procedural textures, or simulations where high-quality
+randomness is needed but where full SHA-256 would be too costly. it produces
+values closely approximating a uniform distribution on [0,1], suitable for
+ray tracing and shader functions. \emph{maj2random} uses only 2 rounds
+with $\approx 3\%$ of the overhead of the full SHA-256 hashing function.
+
+\subsection*{functions}
+
+\noindent
+the SHA-256 algorithm uses six functions, with each function
+operating on 32-bit words, denoted \(x\), \(y\), and \(z\).
+\textit{maj2random} adopts these functions unchanged and adds \emph{unorm}
+to compute a normalized floating-point sample from an integer:
+
+\[
+\begin{array}{rclclcl}
+\mathrm{ch}(x,y,z)  & = & \multicolumn{5}{l}{(x \land y) \oplus (x \land z)} \\
+\mathrm{maj}(x,y,z) & = & \multicolumn{5}{l}{(x \land y) \oplus (x \land z) \oplus (y \land z)} \\[1em]
+\Sigma_0(x) & = & \mathrm{ror}(x,2)  & \oplus & \mathrm{ror}(x,13) & \oplus & \mathrm{ror}(x,22) \\
+\Sigma_1(x) & = & \mathrm{ror}(x,6)  & \oplus & \mathrm{ror}(x,11) & \oplus & \mathrm{ror}(x,25) \\
+\sigma_0(x) & = & \mathrm{ror}(x,7)  & \oplus & \mathrm{ror}(x,18) & \oplus & \mathrm{shr}(x,3) \\
+\sigma_1(x) & = & \mathrm{ror}(x,17) & \oplus & \mathrm{ror}(x,19) & \oplus & \mathrm{shr}(x,10) \\[1em]
+\mathrm{unorm}(n) & = & \frac {n \; \land \; (2^{23}-1)}{2^{23}-1}
+\end{array}
+\]
+
+\newpage
+\subsection*{constants}
+
+\noindent
+the SHA-256 algorithm uses sixty-four constant 32-bit words $K_{0...63}$
+containing the first 32-bits of the fractional part of the cube roots of the
+first sixty-four prime numbers. \textit{maj2random} uses only the first two.
+the first eight are included for testing purposes.
+
+\[
+K_i = \begin{bmatrix}
+    \mathtt{0x428a2f98}, & \mathtt{0x71374491}, & \mathtt{0xb5c0fbcf}, & \mathtt{0xe9b5dba5}, \\
+    \mathtt{0x3956c25b}, & \mathtt{0x59f111f1}, & \mathtt{0x923f82a4}, & \mathtt{0xab1c5ed5}
+\end{bmatrix}, \quad 0 \le i < 8
+\]
+
+\vspace{1em}
+
+\subsection*{entropy}
+
+\noindent
+\textit{maj2random} requires 48-bits of entropy extracted from two single
+precision \emph{IEEE754.1} floating-point numbers such as a \emph{GLSL vec2},
+with implicit leading one in the \emph{mantissa}:
+
+\[
+\begin{array}{rcl}
+uv & = &
+\begin{bmatrix}
+  (-1)^{\mathit{sign}_x} \cdot \mathrm{mantissa}_x \cdot 2^{\mathit{exponent}_x} \\
+  (-1)^{\mathit{sign}_y} \cdot \mathrm{mantissa}_y \cdot 2^{\mathit{exponent}_y}
+\end{bmatrix}
+\end{array}
+\]
+
+\vspace{1em}
+
+\noindent
+\textit{maj2random} extracts 48 bits of entropy from the \emph{sign} and
+\emph{mantissa} fields of $uv$. these bits are combined using funnel-shift
+operations and XOR mixing to form the first two words of the message vector
+$M_i$. the exponent is ignored as inputs are expected to be normalized $uv$
+coordinates (e.g.\ texture coordinates)\footnote{exponent entropy could be
+included, but earlier \emph{GLSL} versions lack reliable \texttt{frexp} or
+\texttt{ilogb}, and \texttt{log2} is insufficiently precise.}.
+
+\[
+\begin{array}{rcl}
+x & = & \mathrm{uint32}\Big( \mathrm{abs}(\mathit{uv.x}) \cdot 2^{23} \lor \;
+        \mathrm{sign}(\mathit{uv.x}) \cdot 2^{23} \Big) \\
+y & = & \mathrm{uint32}\Big( \mathrm{abs}(\mathit{uv.y}) \cdot 2^{23} \lor \;
+        \mathrm{sign}(\mathit{uv.y}) \cdot 2^{23} \Big) \\[1em]
+M_i & = &
+\begin{bmatrix}
+x \; \oplus \; (\mathrm{shl}(x, 8) \; \lor \; \mathrm{shr}(y, 16)), &
+y \; \oplus \; (\mathrm{shl}(x, 16) \; \lor \; \mathrm{shr}(y, 8)))
+\end{bmatrix}
+\end{array}
+\]
+
+\vspace{1em}
+
+\subsection*{key schedule}
+
+\noindent
+the key schedule expands the initial entropy into a full message block
+$W_0\dots W_n$ suitable for hashing. in \textit{maj2random}, because
+only two message words are available, the 64 bits of state from
+$M_0\dots M_1$ are replicated over $W_i$ modulo 2:
+
+\[
+W_i =
+\begin{array}{ll}
+M_{i \bmod 2}.
+\end{array}
+\]
+
+\newpage
+\subsection*{algorithm}
+
+\noindent
+the standard SHA-256 compression function mixes the message block
+$W_0\dots W_i$ into the internal state $H_0\dots H_7$ to produce
+pseudo-random outputs. in \textit{maj2random}, only 2 rounds are applied,
+and the initial state $H_0\dots H_7$ is set to \textit{zero} beforehand.
+
+\[
+\text{for } i = 0,1:
+\quad
+\begin{aligned}
+T_0  &= W_i + H_7 + \sigma_1(H_4) + \mathrm{ch}(H_4, H_5, H_6) + K_i \\
+T_1  &= \mathrm{maj}(H_0, H_1, H_2) + \sigma_0(H_0) \\
+H_7 &= H_6, \; H_6 = H_5, \; H_5 = H_4 \\
+H_4 &= H_3 + T_0 \\
+H_3 &= H_2, \; H_2 = H_1, \; H_1 = H_0 \\
+H_0 &= T_0 + T_1
+\end{aligned}
+\]
+
+\vspace{1em}
+
+\subsection*{sample}
+
+\noindent
+the \emph{unorm} function is applied to the XOR of the hash state
+$H_0\dots H_7$ produced by the compression function to compute $S_i$, a
+floating-point sample in $[0,1]^2$:
+
+\[
+S_i =
+\begin{bmatrix}
+S_x \\[1mm] S_y
+\end{bmatrix}
+=
+\begin{bmatrix}
+\mathrm{unorm}(H_0 \oplus H_1 \oplus H_2 \oplus H_3) \\[1mm]
+\mathrm{unorm}(H_4 \oplus H_5 \oplus H_6 \oplus H_7)
+\end{bmatrix}
+\]
+
+\vspace{1em}
+
+\subsection*{statistics}
+
+\noindent
+mean, variance, standard deviation, and chi-squared ratio are measured for
+\emph{maj2random} using $(x,y)$ coordinates composed of a combination of
+random values and zeroes for $\mathtt{NROUNDS} \in \{2, 4, 8\}$. the standard
+deviations range from $[0.28757,\; 0.28865]$ across all combinations,
+compared with the theoretical value for a uniform distribution on \([0,1]\),
+\[
+  \sigma = \frac{1}{\sqrt{12}} \approx 0.288675.
+\]
+
+\vspace{1em}
+
+\noindent
+a normalized $\chi^2$ (chi-squared) statistic, the \emph{chi-squared ratio}
+$\chi^2_\mathrm{ratio}$, was computed as:
+\[
+  \chi^2_\mathrm{ratio} = \frac{(n-1)s^2}{n\,\sigma^2_\mathrm{theory}} =
+    \frac{s^2}{\sigma^2_\mathrm{theory}} \, \frac{n-1}{n},
+\]
+
+\vspace{1em}
+
+\noindent
+which expresses the measured variance relative to the theoretical variance.
+$\chi^2_\mathrm{ratio}$ values fall within  $[0.99252,\,0.99972]$,
+$[0.99237,\,0.99985]$, and $[0.99244,\,0.99950]$  for $\mathtt{NROUNDS}
+\in \{2, 4, 8\}$, respectively. this indicates that the  observed variances
+are extremely close to the theoretical variance, with minimal difference
+between $\mathtt{NROUNDS}=2$ and $\mathtt{NROUNDS}=8$. values near $1.0$
+correspond to perfect agreement with the theoretical uniform distribution,
+and there is no evidence of statistically significant deviation.
+\newpage
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llrrrrr}
+\hline
+\textbf{x-coord} & \textbf{y-coord} & \textbf{count} & \textbf{mean} &
+\textbf{variance} & \textbf{std-dev} & \textbf{$\chi^2$ ratio} \\
+\hline
+          0 & (0 - 1M)/8M  & 1,000,000 & 0.50015 & 0.08320 & 0.28844 & 0.99835 \\
+          0 & (0 - 8M)/8M  & 8,000,000 & 0.50000 & 0.08271 & 0.28759 & 0.99253 \\
+(0 - 1M)/8M &           0  & 1,000,000 & 0.50018 & 0.08331 & 0.28863 & 0.99972 \\
+(0 - 8M)/8M &           0  & 8,000,000 & 0.49997 & 0.08271 & 0.28760 & 0.99257 \\
+(0 - 1M)/8M & (0 - 1M)/8M  & 1,000,000 & 0.49998 & 0.08328 & 0.28858 & 0.99932 \\
+(0 - 8M)/8M & (0 - 8M)/8M  & 8,000,000 & 0.50002 & 0.08271 & 0.28759 & 0.99252 \\
+\hline
+\end{tabular}
+\caption{statistical results for \emph{maj2random} $(\mathtt{NROUNDS}=2)$.}
+\end{table}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llrrrrr}
+\hline
+\textbf{x-coord} & \textbf{y-coord} & \textbf{count} & \textbf{mean} &
+\textbf{variance} & \textbf{std-dev} & \textbf{$\chi^2$ ratio} \\
+\hline
+          0 & (0 - 1M)/8M  & 1,000,000 & 0.49993 & 0.08331 & 0.28863 & 0.99968 \\
+          0 & (0 - 8M)/8M  & 8,000,000 & 0.50001 & 0.08271 & 0.28760 & 0.99258 \\
+(0 - 1M)/8M &           0  & 1,000,000 & 0.49979 & 0.08332 & 0.28865 & 0.99985 \\
+(0 - 8M)/8M &           0  & 8,000,000 & 0.49997 & 0.08270 & 0.28757 & 0.99237 \\
+(0 - 1M)/8M & (0 - 1M)/8M  & 1,000,000 & 0.50009 & 0.08328 & 0.28859 & 0.99939 \\
+(0 - 8M)/8M & (0 - 8M)/8M  & 8,000,000 & 0.50002 & 0.08273 & 0.28762 & 0.99273 \\
+\hline
+\end{tabular}
+\caption{statistical results for \emph{maj2random} $(\mathtt{NROUNDS}=4)$.}
+\end{table}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llrrrrr}
+\hline
+\textbf{x-coord} & \textbf{y-coord} & \textbf{count} & \textbf{mean} &
+\textbf{variance} & \textbf{std-dev} & \textbf{$\chi^2$ ratio} \\
+\hline
+          0 & (0 - 1M)/8M  & 1,000,000 & 0.50000 & 0.08322 & 0.28848 & 0.99868 \\
+          0 & (0 - 8M)/8M  & 8,000,000 & 0.50002 & 0.08272 & 0.28761 & 0.99261 \\
+(0 - 1M)/8M &           0  & 1,000,000 & 0.49979 & 0.08329 & 0.28860 & 0.99950 \\
+(0 - 8M)/8M &           0  & 8,000,000 & 0.49996 & 0.08272 & 0.28762 & 0.99268 \\
+(0 - 1M)/8M & (0 - 1M)/8M  & 1,000,000 & 0.50008 & 0.08322 & 0.28847 & 0.99860 \\
+(0 - 8M)/8M & (0 - 8M)/8M  & 8,000,000 & 0.49991 & 0.08270 & 0.28758 & 0.99244 \\
+\hline
+\end{tabular}
+\caption{statistical results for \emph{maj2random} $(\mathtt{NROUNDS}=8)$.}
+\end{table}
+
+\vspace{1em}
+
+\subsection*{conclusion}
+
+\noindent
+\emph{maj2random} exhibits uniform statistical properties and minimal
+computational overhead, and its measured statistics are virtually
+identical for $\mathtt{NROUNDS} \in \{2, 4, 8\}$, showing that
+$\mathtt{NROUNDS}=2$ is sufficient to maintain high-quality uniform output.
+given its low computational cost,  \emph{maj2random} is well-suited for
+real-time graphics and procedural content generation.  \emph{note:} while
+it preserves high-quality mixing, it is not intended for cryptography
+applications due to the reduced number of rounds.
+\\
+\par\noindent
+if the vector pipeline contains a \texttt{VSHA256RNDS2} instruction, then
+\emph{maj2random} is an ideal way to compute high-quality deterministic
+random values from texture coordinates.
+
+\end{document}
+\end{array}

@@ -56,8 +56,7 @@ static uvec2 maj_extract(vec2 uv)
     uvec2 s = sign(uv);
     uint x = (uint)(fabsf(uv.a[0]) * (float)(1u<<23)) | (s.a[0] << 23);
     uint y = (uint)(fabsf(uv.a[1]) * (float)(1u<<23)) | (s.a[1] << 23);
-
-    uvec2 r = { (x) | (y << 24), (y >> 8) | (x << 16) };
+    uvec2 r = { x ^ ((x >> 8) | (y << 16)), y ^ ((x >> 16) | (y << 8)) };
     return r;
 }
 
@@ -72,10 +71,6 @@ static vec2 maj_random(vec2 uv, uint NROUNDS)
 
     W[0] = st.a[0];
     W[1] = st.a[1];
-
-    for (i=0; i<NROUNDS; i++) {
-        W[i&1] = gamma1(W[(i-2)&1]) + W[(i-7)&1] + gamma0(W[(i-15)&1]) + W[(i-16)&1];
-    }
 
     /* we use N rounds instead of 64 and alternate 2 words of iv in W */
     for (i=0; i<NROUNDS; i++) {

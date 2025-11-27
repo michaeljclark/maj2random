@@ -78,17 +78,19 @@ void test_maj(const char* name, int NROUNDS, ullong count, ullong range, vec2(*f
         var.a[1] += (q.a[1]-.5f)*(q.a[1]-.5f);
     }
 
-    printf("%-32s%12s%12.5f%12.5f%12.5f%12.5f%12.5f%12.5f\n",
-        name, format_comma(count), sum.a[0]/count, sum.a[1]/count,
-        var.a[0]/count, var.a[1]/count, sqrt(var.a[0]/count), sqrt(var.a[1]/count));
+    double mean = (sum.a[0]/count + sum.a[1]/count) / 2;
+    double variance = (var.a[0]/count + var.a[1]/count) / 2;
+    double stddev = sqrt(variance);
+    double chi2ratio = (variance / (1.0 / 12.0)) * (count-1.0) / count;
+
+    printf("%-32s%12s%12.5f%12.5f%12.5f%12.5f\n",
+        name, format_comma(count), mean, variance, stddev, chi2ratio);
 }
 
 void test_header(const char *name)
 {
-    printf("%-32s%12s%12s%12s%12s%12s%12s%12s\n",
-        name, "count", "mean(x)", "mean(y)",
-        "variance(x)", "variance(y)",
-        "std-dev(x)", "std-dev(y)");
+    printf("%-32s%12s%12s%12s%12s%12s\n",
+        name, "count", "mean", "variance", "std-dev", "chi2-ratio");
 }
 
 void run_all_tests(int NROUNDS, ullong i, ullong j)
