@@ -12,20 +12,27 @@
 \subsection*{introduction}
 
 \noindent
-\emph{maj2random} is a low-overhead floating-point hash function built
-upon a reduced-round version of the SHA-2 hash algorithm. it retains
-the high-quality mixing of the compression function to permute entropy from a
-\emph{GLSL vec2}, producing two random values between 0.0 and 1.0. the name
-\emph{maj2random} comes from the \emph{maj} mixing function and pays homage
-to \emph{arc4random}, where the "2" refers to the number of rounds.
+\emph{maj2random} is a low-overhead floating point random number generator
+built upon a reduced-round variant of the SHA-2 compression function. it
+retains the high-quality mixing behavior of SHA-2 to permute a \emph{GLSL
+vec2} input, producing two pseudorandom values in the interval $[0,1]$.
+the name \emph{maj2random} derives from the use of the \texttt{maj} mixing
+function and pays homage to \texttt{arc4random}; the “2” refers to the number
+of rounds.
 \\
 \par\noindent
-\emph{maj2random} trades cryptographic strength for speed, making it suitable
-for GPU shaders, procedural textures, or simulations where high-quality
-randomness is needed but where full SHA-256 would be too costly. it produces
-values closely approximating a uniform distribution on [0,1], suitable for
-ray tracing and shader functions. \emph{maj2random} uses only 2 rounds
-with $\approx 3\%$ of the overhead of the full SHA-256 hashing function.
+cryptographically secure hash functions are useful building blocks for
+pseudorandom number generators because they are statistically diffuse,
+whereas general-purpose hash functions are optimized for collision
+resistance but typically exhibit biased statistics.
+\\
+\par\noindent
+the goal is a pseudorandom number generator that trades cryptographic
+strength for speed, making it suitable for GPU shaders and simulations where
+high-quality statistically diffuse randomness is needed but where the full
+SHA-256 hash function is too costly. the algorithm produces values
+closely approximating a uniform distribution on $[0,1]$, using only 2 rounds
+at $\approx 3\%$ of the overhead of the full SHA-256 hash function.
 
 \subsection*{functions}
 
@@ -38,11 +45,11 @@ to compute a normalized floating-point sample from an integer:
 \[
 \begin{array}{rclclcl}
 \mathrm{ch}(x,y,z)  & = & \multicolumn{5}{l}{(x \land y) \oplus (x \land z)} \\
-\mathrm{maj}(x,y,z) & = & \multicolumn{5}{l}{(x \land y) \oplus (x \land z) \oplus (y \land z)} \\[1em]
+\mathrm{maj}(x,y,z) & = & \multicolumn{5}{l}{(x \land y) \oplus (x \land z) \oplus (y \land z)} \\[0.5em]
 \Sigma_0(x) & = & \mathrm{ror}(x,2)  & \oplus & \mathrm{ror}(x,13) & \oplus & \mathrm{ror}(x,22) \\
 \Sigma_1(x) & = & \mathrm{ror}(x,6)  & \oplus & \mathrm{ror}(x,11) & \oplus & \mathrm{ror}(x,25) \\
 \sigma_0(x) & = & \mathrm{ror}(x,7)  & \oplus & \mathrm{ror}(x,18) & \oplus & \mathrm{shr}(x,3) \\
-\sigma_1(x) & = & \mathrm{ror}(x,17) & \oplus & \mathrm{ror}(x,19) & \oplus & \mathrm{shr}(x,10) \\[1em]
+\sigma_1(x) & = & \mathrm{ror}(x,17) & \oplus & \mathrm{ror}(x,19) & \oplus & \mathrm{shr}(x,10) \\[0.5em]
 \mathrm{unorm}(n) & = & \frac {n \; \land \; (2^{23}-1)}{2^{23}-1}
 \end{array}
 \]
